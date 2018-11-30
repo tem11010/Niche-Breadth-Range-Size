@@ -5,7 +5,7 @@ This folder contains the raster data for Mean Annual Precipitation, obtained fro
 The data are also available from: [sarva2.dirisa.org/metadata](http://sarva2.dirisa.org/metadata).
 
 
-## CITATION:
+## Citation:
 
 Schulze, R. E. (2007). The South African atlas of agrohydrology and climatology.
 Technical Report WRC Report 1489/1/06. Pretoria, South
