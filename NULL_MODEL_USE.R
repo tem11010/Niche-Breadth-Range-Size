@@ -1,121 +1,21 @@
-#-------------------------------------------------------------------------------------------------#
-
-# Randomzing environment models 
-
-#-------------------------------------------------------------------------------------------------#
-
-
 library(geostatsp)
 library(maptools)
 library(shapefiles)
-#library(ecospat)
 library(INLA)
 library(reshape2)
 library(dplyr)
 library(tidyr)
 library(tibble)
 library(ggplot2)
+library(usdm)
+library(cowplot)
+library(rgdal)
+
 rm(list=ls())
 set.seed(0409)
 
-
-# get pelargonium distribution data for analysis
-pel<-read.csv('C:\\Users\\Tim\\Desktop\\meeting cindi\\dbase_good_24_Feb_2017.csv', header=T, na.string='.')
-
-# clean up in same way as for calculating geog area (from: "calculate areas of ahulls.R code")
-library(dplyr)
-library(gdata)
-pel <- pel %>% dplyr::select(TAXNAME, LATITUDE, LONGITUDE)
-pel <- unique(pel)
-#  subset to secies with < 2 observations
-detach("package:plyr")
-pel.sub <- drop.levels(
-  pel %>%
-    group_by(TAXNAME) %>%
-    mutate(total=n()) %>%
-    filter(total >3 )) %>%
-  data.frame() %>%
-  drop.levels
-
-mytable <- table(pel.sub$TAXNAME)
-pie(mytable)
-min(mytable)
-levels(pel.sub$TAXNAME)
-
-#--------------------------------------------------------------------------------------------------#
-
-# INLA
-
-#--------------------------------------------------------------------------------------------------#
-#use projection for South African Data
-crs_use <- "+proj=aea +lat_1=-24 +lat_2=-32 +lat_0=0 +lon_0=24 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"
-crs_use_obj <- CRS(crs_use, doCheckCRSArgs=TRUE)
-
-mat.temp  <- raster("D:\\Schulze Data\\grids\\tmean13c\\prj.adf") # used as scaffold for analyses
-mat  <- raster("D:\\Schulze Data\\grids\\gmap\\prj.adf")
-#mat  <- raster("D:\\Schulze Data\\grids\\tmean13c\\prj.adf")
-mat <- raster::resample(mat, mat.temp)
-res(mat)
-crs(mat) <- crs_use_obj
-mat.a <- aggregate(mat, fact = 8, fun = mean)
-
-res(mat.a)
-plot(mat.a)
-
-#scale data
-mat.a.unscaled <- mat.a
-values(mat.a) <-as.numeric(scale(values(mat.a))) 
-ext <- extent(mat.a)
-mat.a
-
-
-library(usdm)
-library(cowplot)
-plot(Variogram(mat.a))
-#---------------------------------------------------------------------#
-# getting maps for presentation
-
-#read in simulated layer
-preds <- read.csv("predicted_MAT_inla.csv")
-preds <- read.csv("predicted_MAP_inla.csv")
-
-
-length(preds[, 1])
-length(values(mat.a)[!is.na(values(mat.a))])
-pred.mat <- mat.a
-values(pred.mat)[!is.na(values(pred.mat))] <- preds[, 15]
-plot(pred.mat)
-plot(Variogram(pred.mat))
-
-
-var.mat <- (Variogram(mat.a))
-var.mat.df <- var.mat@variogram
-var.pred  <- (Variogram(pred.mat)) 
-var.pred.df <- var.pred@variogram
-
-
-ggplot()+
-  geom_point(data = var.mat.df, aes(x = distance, y = gamma))+
-  geom_point(data = var.pred.df, aes(x = distance, y = gamma), color = "blue", alpha = 0.6)
-
-#writeRaster(pred.mat, "MAP_agg_sim10.asc", format = "ascii")
-
-
-#---------------------------------------------------------------------#
-
-
-
-plot(mat.a)
-plot(mat.a.unscaled)
-hist(mat.a)
-nrow(mat.a)
-ncol(mat.a)
-
-
-# convert raster to matrix and then use create_grid function to make it into a grid
-dat <- rasterToPoints(mat.a)
-colnames(dat) <- c("x", "y", "z")
-
+#-----------------------------------------------------------------------------#
+# create_grid function to make a matrix into a grid
 create_grid <- function(x){
   
   if (class(x) == "matrix") {
@@ -146,14 +46,86 @@ create_grid <- function(x){
   
 }
 
-mat.grid <- create_grid(dat)
-mat.grid
-
-nrow(mat.grid$xy_grid2)
-ncol(mat.grid$xy_grid2)
-
 #-------------------------------------------------------------------#
 
+# get pelargonium distribution data for analysis
+pel<-read.csv("data/dbase_good_24_Feb_2017.csv", header=T, na.string='.')
+
+# clean up species data
+pel <- pel %>% dplyr::select(TAXNAME, LATITUDE, LONGITUDE)
+pel <- unique(pel)
+#  subset to secies with < 2 observations
+detach("package:plyr")
+pel.sub <- drop.levels(
+  pel %>%
+    group_by(TAXNAME) %>%
+    mutate(total=n()) %>%
+    filter(total >3 )) %>%
+  data.frame() %>%
+  drop.levels
+
+mytable <- table(pel.sub$TAXNAME)
+pie(mytable)
+min(mytable)
+levels(pel.sub$TAXNAME)
+
+#--------------------------------------------------------------------------------------------------#
+
+# CLIMATE DATA
+
+#--------------------------------------------------------------------------------------------------#
+
+#use projection for South African Data
+crs_use <- "+proj=aea +lat_1=-24 +lat_2=-32 +lat_0=0 +lon_0=24 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs"
+crs_use_obj <- CRS(crs_use, doCheckCRSArgs=TRUE)
+
+# read in a raster layer 
+# NOTE: there were subtle differences between rainfall and temperature layers, and so I use
+# the temperaure layer as my 'scaffold' layer. I did this by resampling the rainfall layer
+# by the temperature layer. 
+
+
+# mat.temp  =  scaffold layer
+# mat = layer to be simulated
+
+mat.temp  <- raster("MAT/prj.adf") # used as scaffold for analyses
+mat  <- raster("MAP/prj.adf") # rainfall
+#mat  <- raster("D:\\Schulze Data\\grids\\tmean13c\\prj.adf") # temperature
+mat <- raster::resample(mat, mat.temp)
+
+# check resolution of the raster
+res(mat)
+# set the coordiante reference system for raster layer
+crs(mat) <- crs_use_obj
+
+# aggregate cells for lower resolution
+mat.a <- aggregate(mat, fact = 8, fun = mean)
+res(mat.a)
+plot(mat.a)
+
+#scale the climate data 
+mat.a.unscaled <- mat.a
+values(mat.a) <-as.numeric(scale(values(mat.a))) 
+ext <- extent(mat.a)
+mat.a
+
+# check the spatial structure in the observed layer
+plot(Variogram(mat.a))
+
+
+# create matrix from the aggregated raster
+dat <- rasterToPoints(mat.a)
+colnames(dat) <- c("x", "y", "z")
+mat.grid <- create_grid(dat)
+# mat.grid
+# nrow(mat.grid$xy_grid2)
+# ncol(mat.grid$xy_grid2)
+
+#--------------------------------------------------------------------------------------------------#
+
+# INLA
+
+#--------------------------------------------------------------------------------------------------#
 # variables needed for the f function and the model
 nrow=nrow(mat.grid$xy_grid2) # should be same as alt.xy_grid2
 ncol=ncol(mat.grid$xy_grid2) # should be same as alt.xy_grid2
@@ -168,13 +140,15 @@ formula= y ~ 1 + f(node, model="matern2d", nu=1, nrow=nrow, ncol=ncol,
                                 prec = list(param=c(1, 1)))) 
 
 
-# Need to check initial values for optimization
-#inla.set.control.inla.default
+# If you need to check the initial values for optimization
+# inla.set.control.inla.default
 
 # get data into format for the model
 mat.data=data.frame(y=y, node=node)
 class(mat.data)
 ## fit the model
+# NOTE: this may take some time to run if layer is large or at high resolution!
+
 result=inla(formula, family="gaussian", data=mat.data, verbose=TRUE,
             control.predictor = list(compute = TRUE),
             control.family = list(hyper = list(theta = list(initial = log(1/s.noise^2),
@@ -182,16 +156,25 @@ result=inla(formula, family="gaussian", data=mat.data, verbose=TRUE,
             control.compute=list(cpo=FALSE), 
             control.inla = list(h = 1e-5, tolerance=1e-5),  
             keep=TRUE)
+# result contains the model output
 
+# Havard Rue suggested checking the mode.status to confirm that the model has been parameterized 
+# appropriately. Ideally the mode.status should be 0
+result$mode$mode.status 
+
+# if this does not return 0, you can rerun the model using the previously estimated parameters
+# as the starting points
 result = inla.rerun(result)
+# and check the mode.status again
 result$mode$mode.status
 
+# store the parameter estimates to be used for simulation later
 summ <- summary(result)
 summ
 
 ## plot the posterior mean for `predictor' and compare with the truth
 #dev.new()
-INLA:::inla.display.matrix(mat.grid$xy_grid2)
+INLA:::inla.display.matrix(mat.grid$xy_grid2) # observed
 #dev.new()
 INLA:::inla.display.matrix(INLA:::inla.vector2matrix(result$summary.linear.predictor$mean,nrow,ncol))
 
@@ -236,12 +219,13 @@ obs_df$y <- as.numeric(obs_df$y)
 
 # plot it in ggplot
 ggplot()+
-  geom_raster(data = obs_df, aes(x = x, y=y, fill = z))
+  geom_raster(data = obs_df, aes(x = x, y=y, fill = z)) # observed
 
+# remove the values that are NA in the observed dataset
 pred_df2 <- pred_df[!is.na(obs_df[, 3]),]
 
 ggplot()+
-  geom_raster(data = pred_df2, aes(x = x, y=y, fill = z))
+  geom_raster(data = pred_df2, aes(x = x, y=y, fill = z)) # modeled
 
 
 # now plot the relationship between observed and predicted values
@@ -252,12 +236,12 @@ plot(inla.matrix2vector(pred_mat),  inla.matrix2vector(obs_mat))
 #ylim =c(8, max(dat[, 3])), xlim =c(8, max(dat[, 3])))
 abline(b=1, a =0)
 
-
+#check correlation
 summary(lm(inla.matrix2vector(pred_mat)~inla.matrix2vector(obs_mat)) )
 
 #-------------------------------------------------------------------------------------------------#
-#-------------------------------------------------------------------------------------------------#
-# run with nu = 2 and compare to 'result'
+# this is to rerun the models with a different parameter value, i.e., setting
+# nu = 2 and compare to 'result'
 
 formula2= y ~ 1 + f(node, model="matern2d", nu=2, nrow=nrow, ncol=ncol,
                     hyper = list(range = list(param =c(1, 1),
@@ -282,7 +266,6 @@ colnames(pred_mat2) <- mat.grid$x_vals
 rownames(pred_mat2) <- mat.grid$y_vals
 
 
-
 # now plot the relationship between the two models with different nu values
 par(mfrow=c(1, 1))
 #dev.new()
@@ -295,13 +278,11 @@ abline(b=1, a =0)
 # seems that in both cases nu = 1 has a better fit
 # and fit is better when data are scaled
 
-#-------------------------------------------------------------------------------------------------#
-#-------------------------------------------------------------------------------------------------#
-
-
 #--------------------------------------------------------------------------------------------------#
 
-# Simulate data
+# SIMULATING THE CLIMATE DATA BASED ON INLA MODEL
+
+#--------------------------------------------------------------------------------------------------#
 
 # make dat raw data values first
 dat <- rasterToPoints(mat.a)
@@ -309,15 +290,17 @@ colnames(dat) <- c("x", "y", "z")
 
 dmat <- as.matrix(dist(dat))
 dim(dmat)
-dev.off()
+#dev.off()
 # get parameter estimates from the INLA model
 summ
-#summ2
-beta0 <- 1.0894
-sigma2e <- 1 / 3.765e+04# precision for gaussian observations
-sigma2x <- 1 / 7.545e-01#precision for node
 
-kappa <- sqrt(8) / 1.900e+01# range for the node
+# use these to set values below
+beta0 <- -0.2157
+sigma2e <- 1 / 35645.437# precision for gaussian observations
+sigma2x <- 1 / 1.029#precision for node
+kappa <- sqrt(8) / 19.574# range for the node
+
+# use value of nu specified for model
 nu <- 1
 
 mcor <- as.matrix(2 ^ (1 - nu) * (kappa * dmat) ^ nu *
@@ -325,8 +308,9 @@ mcor <- as.matrix(2 ^ (1 - nu) * (kappa * dmat) ^ nu *
 diag(mcor) <- 1
 mcov <- sigma2e * diag(ncol(dmat)) + sigma2x * mcor
 
-#image(mcor)
-# convert var covar to sd matrix
+
+# convert varcovar matrix to sd matrix
+# NOTE: computationally intensive!!
 gc()
 L <- chol(mcor) # convert var covar to sd matrix
 gc()
@@ -337,83 +321,85 @@ vals = as.numeric(sort(dat$z))
 
 #set up empty matrix and fill with predicted values
 preds <- matrix(nrow = nrow(dat), ncol = 1000)
+dim(preds)
 for (i in 1:1000) {
   preds[, i] <-
     beta0 + drop(rnorm(ncol(dmat)) %*% L) # simulate data
-  print(i)
+  print(i) # can suppress this
   
-  # replace GRF values with real ones in rank order...
+  # replace values in simulated layers with real ones in rank order
+  # this is so that all layers have the same values in them 
+  # (see Chapman 2010, citation in the paper)
+  
   preds[, i] = vals[rank(preds[, i], ties.method = "random")]
 }
 
 preds <- as.data.frame(preds)
 colnames(preds) <- paste("y", 1:1000, sep = "")
 
+# add coordinates
 preds$x <- dat$x
 preds$y <- dat$y
-
 
 # check histograms to make sure the data match
 hist(preds$y1)
 hist(dat$z, add = TRUE, col = "red")
 
-
+# example of observed vs expected
 mat.a.df <- rasterToPoints(mat.a) %>% as.data.frame
 ggplot(data = mat.a.df, aes(x = x, y = y, fill = prj)) +
   geom_raster() +
   ggtitle("Observed") +
   scale_fill_gradientn(colors = terrain.colors(10))
 
+# p
 ggplot(data = preds, aes(x = x, y = y, fill = y36)) +
   geom_raster() +
   ggtitle("Predicted") +
   scale_fill_gradientn(colors = terrain.colors(10))
 
-plot(mat.a)
-
-
 max(dat[, 2])-min(dat[, 2])
 
-15/0.25
 
-60*30
+# you can now write the scaled predicted layers to CSV
+write.csv(preds, "results/predicted_inla_scaled.csv")
 
-head(preds[, 999:1002])
-length(preds[,1000])
+
+preds.s <- preds
 
 # unscale values of MAP before saving and extracting for species
-
 for (i in 1:1000){
   
-  preds[, i] <- preds[, i]*sd(values(mat.a.unscaled), na.rm = TRUE) + mean(values(mat.a.unscaled), na.rm = TRUE)
+  preds.s[, i] <- preds.s[, i]*sd(values(mat.a.unscaled), na.rm = TRUE) + mean(values(mat.a.unscaled), na.rm = TRUE)
   
 }
 
+# pred
 
+# you can now write the unscaled predicted layers to CSV
+write.csv(preds.s, "results/predicted_inla_unscaled.csv")
 
-
-
-write.csv(preds, "predicted_MAT_inla_unscaled.csv")
-
-
+head(preds[, 1:10])
 
 # check 
-#can use this method to make the predicted maps
+# you can use this method to make the predicted maps
 pred.1 <- mat.a
-values(pred.1)[!is.na(values(pred.1))] <- preds[, 20]
-plot(pred.1)
+values(pred.1)[!is.na(values(pred.1))] <- preds[, 1]
+plot(pred.1) # first predicted layer
 # compare
-plot(mat.a.unscaled)
+plot(mat.a) # observed layer
+# we'll formalize this below
 
-#-------------------------------------------------------------------------------------------------#
+#--------------------------------------------------------------------------------------------------#
 
-#create rasters with simulated data
+# create raster layers from simulated data
 
-library(rgdal)
+#--------------------------------------------------------------------------------------------------#
 sims <- list()
 sims_grid <- list()
 sims_r <-list()
-i=1
+#i=1
+
 for (i in 1:1000){
   
   sims[[i]] <- as.data.frame(preds[, c("x", "y", paste("y", i, sep = ""))])
@@ -435,15 +421,13 @@ for (i in 1:1000){
 }
 #sims_r now holds raster layers of each predicted env layer (should be 1000)
 
-plot(sims_r[[1]], col = topo.colors(20))
+# example
+plot(sims_r[[1]])
 
 #check that details are the same (mins and maxes, etc)
 mat.a
-sims_r[[10]]
+sims_r[[1]]
 
-range(raster::extract(sims_r[[500]], pel.sub[, c("LONGITUDE", "LATITUDE")]))
-plot(sims_r[[500]])
-plot(mat.a)
 
 #-------------------------------------------------------------------------------------------------#
 
@@ -460,43 +444,44 @@ for (i in 1:1000) {
 }
 
 pel.preds.inla$TAXNAME <- pel.sub$TAXNAME
+head(pel.preds.inla[, 990:1001])
 
 
 # write extracted null data to csv
+write.csv(pel.preds.inla, "results/pel_pred_inla_scaled.csv")
+# this will be used in observed vs simulated NB R code
 
-write.csv(pel.preds.inla, "pel_pred_MAT_inla_unscaled.csv")
-
-#-------------------------------------------------------------------------------------------------#
-#--------------------------------------------------------------------------------------------------#
-
-# Completely randomized
 
 #--------------------------------------------------------------------------------------------------#
-# create completely randomized layers of climate vars and save them as text files. need to get the
-# standard deviations too
+
+# generate completely randomized climate layers 
+
+#--------------------------------------------------------------------------------------------------#
+# create completely randomized layers of climate vars and save them as a csv. 
 
 # 6858 cells in temp layer
-# 6936 cells in precip layer
-length(na.omit(values(mat.a)))
-length(na.omit(values(bio12)))
+# 6936 cells in rainfall layer
 
-mat.a.r <- mat.a.unscaled
+n.cell <- length(na.omit(values(mat.a)))
 
+
+# first randomize data in 1000 maps
+mat.a.r <- mat.a
 random_maps <- list()
 
 for (i in 1:1000){
   
   random_maps[[i]] <- mat.a.r
   values(random_maps[[i]])[!is.na(values(random_maps[[i]]))] <- 
-    values(random_maps[[i]])[!is.na(values(random_maps[[i]]))][sample(6858, 6858)] # change numbers!!
+    values(random_maps[[i]])[!is.na(values(random_maps[[i]]))][sample(n.cell, n.cell)] # change numbers!!
 }
 
-plot(random_maps[[500]])
-hist(random_maps[[1000]])
-hist(mat.a)
-
-plot(mat.a)
-plot(random_maps[[1]])
+# plot example
+par(mfrow = c(2, 2))
+plot(random_maps[[1]], main = "random")
+plot(mat.a, main = "observed")
+hist(random_maps[[1]], main = "random") # histograms should match
+hist(mat.a, main = "observed") # histograms should match
 
 # extract data for all pel species
 pel.preds.rand <- as.data.frame(matrix(nrow = length(pel.sub$TAXNAME), ncol = 1000))
@@ -510,9 +495,6 @@ for (i in 1:1000) {
 }
 
 pel.preds.rand$TAXNAME <- pel.sub$TAXNAME
-
-
-write.csv(pel.preds.rand, "pel_pred_MAT_rand_unscaled.csv")
-
-
+write.csv(pel.preds.rand, "results/pel_pred_rand_scaled.csv")
+# this will be used in observed vs simulated NB R code
 
