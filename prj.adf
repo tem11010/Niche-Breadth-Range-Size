@@ -1,0 +1,8 @@
+Projection    GEOGRAPHIC                                                        
+Datum         CAP                                                               
+Zunits        NO                                                                
+Units         DD                                                                
+Spheroid      CLARKE1880                                                        
+Xshift        0.0000000000                                                      
+Yshift        0.0000000000                                                      
+Parameters                                                                      
