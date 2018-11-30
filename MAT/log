@@ -1,0 +1,2 @@
+20051213 917   0     1     0maharaj TMEAN13C = SELECTPOLYGON(tmean13, /mysql/u9/lynch/rsa/rsa)
+200603201036   1     0     0Craig_Gers projectdefine grid W:\GISData\grids\TMEAN13C
